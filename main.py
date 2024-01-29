@@ -128,4 +128,4 @@ async def signout(request_data: dict):
     update_query = users.update().where(users.c.email == email).values(jwt_token=None)
     await database.execute(update_query)
 
-    return {"message": f"User signed out successfully"}
+    return {"message": "User signed out successfully"}
