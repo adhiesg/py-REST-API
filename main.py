@@ -3,7 +3,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordBearer
 from databases import Database
-from sqlalchemy import MetaData, create_engine, Table, Column, Integer, String, DateTime
+from sqlalchemy import MetaData, create_engine, Table, Column, Integer, String, DateTime, select
 from sqlalchemy.sql import func
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
@@ -51,6 +51,17 @@ async def shutdown():
 # Signup endpoint
 @app.post("/signup")
 async def signup(user: User):
+
+    # check if email is exist in db
+    query_check_email = select([users.c.id]).where(users.c.email == user.email)
+    existing_user = await database.fetch_one(query_check_email)
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+    
     if user.password != user.password_confirmation:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
