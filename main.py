@@ -7,8 +7,13 @@ from sqlalchemy import MetaData, create_engine, Table, Column, Integer, String, 
 from sqlalchemy.sql import func
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
+from datetime import datetime, timedelta
 
-DATABASE_URL = "sqlite:///./users.db"  # Change the database name here
+import jwt
+
+#no need env for easier testing
+DATABASE_URL = "sqlite:///./users.db"  
+SECRET_KEY = "secR3t_Keyyy"
 
 database = Database(DATABASE_URL)
 metadata = MetaData()
@@ -28,11 +33,20 @@ metadata.create_all(bind=engine)
 app = FastAPI()
 
 ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 class User(BaseModel):
     email: EmailStr
     password: str
     password_confirmation: str
+
+class Signin(BaseModel):
+    email: EmailStr
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 # Password hashing method
 password_hashing = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -48,7 +62,7 @@ async def shutdown():
     await database.disconnect()
     print("Disconnected from the database")
 
-# Signup endpoint
+# signup endpoint
 @app.post("/signup")
 async def signup(user: User):
 
@@ -62,6 +76,7 @@ async def signup(user: User):
             detail="Email already registered",
         )
     
+    # check if passwords match
     if user.password != user.password_confirmation:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -72,3 +87,24 @@ async def signup(user: User):
     query = users.insert().values(email=user.email, hashed_password=hashed_password)
     await database.execute(query)
     return {"message": "User signed up successfully"}
+
+# signin endpoint
+@app.post("/signin", response_model=Token)
+async def signin(form_data: Signin):
+    # check if the user exists in the database
+    query_check_user = select([users.c.id, users.c.hashed_password]).where(users.c.email == form_data.email)
+    user_record = await database.fetch_one(query_check_user)
+
+    if user_record and password_hashing.verify(form_data.password, user_record['hashed_password']):
+        # generate JWT token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expiration = datetime.utcnow() + access_token_expires
+        to_encode = {"sub": form_data.email, "exp": expiration}
+        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return {"access_token": encoded_jwt, "token_type": "bearer"}
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid password or email doesn't exist",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
