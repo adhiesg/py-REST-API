@@ -29,6 +29,14 @@ users = Table(
     Column("jwt_token", String, nullable=True),
 )
 
+tracked_coins = Table(
+    "tracked_coins",
+    metadata,
+    Column("user_email", ForeignKey("users.email"), primary_key=True, index=True),  # Foreign key referencing the users table
+    Column("coin_name", String, primary_key=True),
+    Column("coin_price_usd", Float),
+    # Add more columns as needed, such as date_added, etc.
+)
 engine = create_engine(DATABASE_URL)
 metadata.create_all(bind=engine)
 
@@ -155,3 +163,24 @@ async def token_list(request_data: dict):
         return response.json()
     else:
         raise HTTPException(status_code=response.status_code, detail="Error fetching token list")
+
+@app.get("/userTrackedCoins")
+async def user_tracked_coins(request_data: dict):
+    email = request_data.get("email")
+    # Check if the user with the provided email exists
+    user_query = select([users]).where(users.c.email == email)
+    user = await database.fetch_one(user_query)
+
+    if user is None:
+        raise HTTPException(status_code=404, detail=f"User not found")
+
+    # Fetch the list of tracked coins for the user
+    tracked_coins_query = select([tracked_coins]).where(tracked_coins.c.user_email == email)
+    tracked_coins_list = await database.fetch_all(tracked_coins_query)
+
+    if not tracked_coins_list:
+        raise HTTPException(status_code=404, detail=f"No tracked coins")
+
+    user_tracked_coins = [{"coin_name": coin["coin_name"], "coin_price_usd": coin["coin_price_usd"]} for coin in tracked_coins_list]
+
+    return {"user_tracked_coins": user_tracked_coins}
