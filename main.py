@@ -1,15 +1,16 @@
 # main.py
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from databases import Database
-from sqlalchemy import MetaData, create_engine, Table, Column, Integer, String, DateTime, select
+from sqlalchemy import MetaData, create_engine, Table, Column, Integer, String, DateTime, select, ForeignKey, Float
 from sqlalchemy.sql import func
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
 
 import jwt
+import httpx
 
 #no need env for easier testing
 DATABASE_URL = "sqlite:///./test1.db"  
@@ -17,6 +18,7 @@ SECRET_KEY = "secR3t_Keyyy"
 
 database = Database(DATABASE_URL)
 metadata = MetaData()
+http_client = httpx.AsyncClient()
 
 users = Table(
     "users",
@@ -129,3 +131,34 @@ async def signout(request_data: dict):
     await database.execute(update_query)
 
     return {"message": "User signed out successfully"}
+
+
+# token list endpoint to get the list of tokens from coincap
+# only authenticated users can access this endpoint
+@app.post("/tokenList")
+async def token_list(request_data: dict):
+    email = request_data.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    # Fetch the JWT token from the user's record
+    user_query = select([users.c.jwt_token]).where(users.c.email == email)
+    user_record = await database.fetch_one(user_query)
+
+    if not user_record or user_record['jwt_token'] is None:
+        raise HTTPException(status_code=404, detail=f"Not Authorized")
+
+    # Validate the JWT token
+    try:
+        payload = jwt.decode(user_record['jwt_token'], SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Call the external API using the JWT token
+    coin_api_url = "https://api.coincap.io/v2/assets"
+    response = await http_client.get(coin_api_url)
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise HTTPException(status_code=response.status_code, detail="Error fetching token list")
