@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import jwt
 
 #no need env for easier testing
-DATABASE_URL = "sqlite:///./users.db"  
+DATABASE_URL = "sqlite:///./test1.db"  
 SECRET_KEY = "secR3t_Keyyy"
 
 database = Database(DATABASE_URL)
@@ -25,6 +25,7 @@ users = Table(
     Column("email", String, unique=True, index=True),
     Column("hashed_password", String),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
+    Column("jwt_token", String, nullable=True)
 )
 
 engine = create_engine(DATABASE_URL)
@@ -45,7 +46,8 @@ class Signin(BaseModel):
     password: str
 
 class Token(BaseModel):
-    access_token: str
+    message: str
+    token: str
     token_type: str = "bearer"
 
 # Password hashing method
@@ -89,6 +91,7 @@ async def signup(user: User):
     return {"message": "User signed up successfully"}
 
 # signin endpoint
+# since the jwt is not handled in client side, we need to store it in database
 @app.post("/signin", response_model=Token)
 async def signin(form_data: Signin):
     # check if the user exists in the database
@@ -101,10 +104,28 @@ async def signin(form_data: Signin):
         expiration = datetime.utcnow() + access_token_expires
         to_encode = {"sub": form_data.email, "exp": expiration}
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-        return {"access_token": encoded_jwt, "token_type": "bearer"}
+
+        # Store the JWT token in the users database
+        update_query = users.update().where(users.c.id == user_record['id']).values(jwt_token=encoded_jwt)
+        await database.execute(update_query)
+
+        return {"message": "User signed in successfully", "token": encoded_jwt ,"token_type": "bearer"}
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid password or email doesn't exist",
+        detail="Invalid credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+# signout endpoint 
+# remove the jwt from the database
+@app.post("/signout")
+async def signout(request_data: dict):
+    email = request_data.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required in the request body")
+
+    update_query = users.update().where(users.c.email == email).values(jwt_token=None)
+    await database.execute(update_query)
+
+    return {"message": f"User signed out successfully"}
