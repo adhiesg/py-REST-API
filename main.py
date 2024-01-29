@@ -206,44 +206,45 @@ async def token_list(request_data: dict):
     email = request_data.get("email")
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
-
-    # Validate user
     try:
         payload = await validate_user(email)
+
+        # fetch data from extenal API
+        coin_api_url = "https://api.coincap.io/v2/assets"
+        response = await http_client.get(coin_api_url)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail="Error fetching token list")
     except HTTPException as e:
         return {"error": str(e)}
     
-    # Call the external API using the JWT token
-    coin_api_url = "https://api.coincap.io/v2/assets"
-    response = await http_client.get(coin_api_url)
-
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise HTTPException(status_code=response.status_code, detail="Error fetching token list")
+    
 
 @app.get("/userTrackedCoins")
 async def user_tracked_coins(request_data: dict):
     email = request_data.get("email")
     if not email:
-        raise HTTPException(status_code=400, detail="Email is required")
-    
-   # Validate user
+        raise HTTPException(status_code=400, detail="Email is required") 
     try:
         payload = await validate_user(email)
+        
+        # Fetch the list of tracked coins for the user
+        tracked_coins_query = select([tracked_coins]).where(tracked_coins.c.user_email == email)
+        tracked_coins_list = await database.fetch_all(tracked_coins_query)
+
+        if not tracked_coins_list:
+            raise HTTPException(status_code=404, detail=f"No tracked coins")
+
+        user_tracked_coins = [{"coin_name": coin["coin_name"], "coin_price_idr": coin["coin_price_idr"]} for coin in tracked_coins_list]
+
+        return {"user_tracked_coins": user_tracked_coins}
+    
     except HTTPException as e:
         return {"error": str(e)}
 
-    # Fetch the list of tracked coins for the user
-    tracked_coins_query = select([tracked_coins]).where(tracked_coins.c.user_email == email)
-    tracked_coins_list = await database.fetch_all(tracked_coins_query)
-
-    if not tracked_coins_list:
-        raise HTTPException(status_code=404, detail=f"No tracked coins")
-
-    user_tracked_coins = [{"coin_name": coin["coin_name"], "coin_price_idr": coin["coin_price_idr"]} for coin in tracked_coins_list]
-
-    return {"user_tracked_coins": user_tracked_coins}
+    
 
 @app.post("/addCoin")
 async def add_coin(request_data: dict):
@@ -256,30 +257,30 @@ async def add_coin(request_data: dict):
    # Validate user
     try:
         payload = await validate_user(email)
+        
+        # Check if the coin is already tracked by the user
+        tracked_coin_query = select([tracked_coins]).where(
+            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+        )
+        existing_tracked_coin = await database.fetch_one(tracked_coin_query)
+
+        if existing_tracked_coin:
+            raise HTTPException(status_code=400, detail=f"Coin {coin_name} is already being tracked by the user")
+
+        # Fetch the amount in USD for the specified coin from the CoinCap API
+        amount_usd = await fetch_coin_price_usd(coin_name)
+
+        # Convert USD to IDR using the exchange rate
+        amount_idr = await convert_usd_to_idr(amount_usd)
+
+        # Add the coin to the user's tracker with the converted amount in IDR
+        add_coin_query = tracked_coins.insert().values(
+            user_email=email,
+            coin_name=coin_name,
+            coin_price_idr=amount_idr,
+        )
+        await database.execute(add_coin_query)
+
+        return {"message": f"{coin_name} added to tracker for user {email}"}
     except HTTPException as e:
         return {"error": str(e)}
-
-    # Check if the coin is already tracked by the user
-    tracked_coin_query = select([tracked_coins]).where(
-        (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
-    )
-    existing_tracked_coin = await database.fetch_one(tracked_coin_query)
-
-    if existing_tracked_coin:
-        raise HTTPException(status_code=400, detail=f"Coin {coin_name} is already being tracked by the user")
-
-    # Fetch the amount in USD for the specified coin from the CoinCap API
-    amount_usd = await fetch_coin_price_usd(coin_name)
-
-    # Convert USD to IDR using the exchange rate
-    amount_idr = await convert_usd_to_idr(amount_usd)
-
-    # Add the coin to the user's tracker with the converted amount in IDR
-    add_coin_query = tracked_coins.insert().values(
-        user_email=email,
-        coin_name=coin_name,
-        coin_price_idr=amount_idr,
-    )
-    await database.execute(add_coin_query)
-
-    return {"message": f"Coin {coin_name} added to tracker for user {email} with price {amount_idr} IDR"}
