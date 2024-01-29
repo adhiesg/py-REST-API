@@ -13,12 +13,13 @@ import jwt
 import httpx
 
 #no need env for easier testing
-DATABASE_URL = "sqlite:///./test1.db"  
+DATABASE_URL = "sqlite:///./test2.db"  
 SECRET_KEY = "secR3t_Keyyy"
 
 database = Database(DATABASE_URL)
 metadata = MetaData()
 http_client = httpx.AsyncClient()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 users = Table(
     "users",
@@ -34,7 +35,7 @@ tracked_coins = Table(
     metadata,
     Column("user_email", ForeignKey("users.email"), primary_key=True, index=True),  # Foreign key referencing the users table
     Column("coin_name", String, primary_key=True),
-    Column("coin_price_usd", Float),
+    Column("coin_price_idr", Float),
     # Add more columns as needed, such as date_added, etc.
 )
 engine = create_engine(DATABASE_URL)
@@ -43,7 +44,7 @@ metadata.create_all(bind=engine)
 app = FastAPI()
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 1
 
 class User(BaseModel):
     email: EmailStr
@@ -72,6 +73,70 @@ async def startup():
 async def shutdown():
     await database.disconnect()
     print("Disconnected from the database")
+
+# Function to validate user
+async def validate_user(email: str) -> dict:
+    # Fetch user data from the database
+    user_query = select([users.c.jwt_token]).where(users.c.email == email)
+    user_record = await database.fetch_one(user_query)
+
+    # Validate if the user exists
+    if user_record is None:
+        raise HTTPException(status_code=404, detail="Not Authorized")
+
+    # Validate the JWT token
+    try:
+        payload = jwt.decode(user_record['jwt_token'], SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+# Function to convert usd to idr from open.er-api exchange rate
+async def convert_usd_to_idr(amount_usd: float) -> float:
+    try:
+        # Make a request to get the latest exchange rates
+        async with httpx.AsyncClient() as client:
+            response = await client.get("https://open.er-api.com/v6/latest/USD")
+            response.raise_for_status()
+            data = response.json()
+
+        # Extract the exchange rate for USD to IDR
+        exchange_rate_usd_to_idr = data["rates"]["IDR"]
+
+        # Convert the amount from USD to IDR
+        amount_idr = amount_usd * exchange_rate_usd_to_idr
+
+        return amount_idr
+
+    except httpx.HTTPError as e:
+        # Handle HTTP errors
+        raise HTTPException(status_code=500, detail=f"Error fetching exchange rates: {e}")
+    except (KeyError, ValueError) as e:
+        # Handle JSON parsing errors
+        raise HTTPException(status_code=500, detail=f"Error parsing exchange rate data: {e}")
+    
+# Function to fetch the USD amount for a coin from the CoinCap API
+async def fetch_coin_price_usd(coin_name: str) -> float:
+    try:
+        # Make a request to get the latest information for the specified coin
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.coincap.io/v2/assets/{coin_name}")
+            response.raise_for_status()
+            data = response.json()
+
+        # Extract the price in USD from the response
+        amount_usd = float(data["data"]["priceUsd"])
+
+        return amount_usd
+
+    except httpx.HTTPError as e:
+        # Handle HTTP errors
+        raise HTTPException(status_code=500, detail=f"Error fetching coin price from CoinCap API: {e}")
+    except (KeyError, ValueError) as e:
+        # Handle JSON parsing errors
+        raise HTTPException(status_code=500, detail=f"Error parsing coin price data from CoinCap API: {e}")
+    
 
 # signup endpoint
 @app.post("/signup")
@@ -142,19 +207,12 @@ async def token_list(request_data: dict):
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
 
-    # Fetch the JWT token from the user's record
-    user_query = select([users.c.jwt_token]).where(users.c.email == email)
-    user_record = await database.fetch_one(user_query)
-
-    if not user_record or user_record['jwt_token'] is None:
-        raise HTTPException(status_code=404, detail=f"Not Authorized")
-
-    # Validate the JWT token
+    # Validate user
     try:
-        payload = jwt.decode(user_record['jwt_token'], SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
+        payload = await validate_user(email)
+    except HTTPException as e:
+        return {"error": str(e)}
+    
     # Call the external API using the JWT token
     coin_api_url = "https://api.coincap.io/v2/assets"
     response = await http_client.get(coin_api_url)
@@ -167,12 +225,14 @@ async def token_list(request_data: dict):
 @app.get("/userTrackedCoins")
 async def user_tracked_coins(request_data: dict):
     email = request_data.get("email")
-    # Check if the user with the provided email exists
-    user_query = select([users]).where(users.c.email == email)
-    user = await database.fetch_one(user_query)
-
-    if user is None:
-        raise HTTPException(status_code=404, detail=f"User not found")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+   # Validate user
+    try:
+        payload = await validate_user(email)
+    except HTTPException as e:
+        return {"error": str(e)}
 
     # Fetch the list of tracked coins for the user
     tracked_coins_query = select([tracked_coins]).where(tracked_coins.c.user_email == email)
@@ -181,6 +241,45 @@ async def user_tracked_coins(request_data: dict):
     if not tracked_coins_list:
         raise HTTPException(status_code=404, detail=f"No tracked coins")
 
-    user_tracked_coins = [{"coin_name": coin["coin_name"], "coin_price_usd": coin["coin_price_usd"]} for coin in tracked_coins_list]
+    user_tracked_coins = [{"coin_name": coin["coin_name"], "coin_price_idr": coin["coin_price_idr"]} for coin in tracked_coins_list]
 
     return {"user_tracked_coins": user_tracked_coins}
+
+@app.post("/addCoin")
+async def add_coin(request_data: dict):
+    email = request_data.get("email")
+    coin_name = request_data.get("coin_name")
+
+    if not email or not coin_name:
+        raise HTTPException(status_code=400, detail="Email and coin_name are required in the request body")
+
+   # Validate user
+    try:
+        payload = await validate_user(email)
+    except HTTPException as e:
+        return {"error": str(e)}
+
+    # Check if the coin is already tracked by the user
+    tracked_coin_query = select([tracked_coins]).where(
+        (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+    )
+    existing_tracked_coin = await database.fetch_one(tracked_coin_query)
+
+    if existing_tracked_coin:
+        raise HTTPException(status_code=400, detail=f"Coin {coin_name} is already being tracked by the user")
+
+    # Fetch the amount in USD for the specified coin from the CoinCap API
+    amount_usd = await fetch_coin_price_usd(coin_name)
+
+    # Convert USD to IDR using the exchange rate
+    amount_idr = await convert_usd_to_idr(amount_usd)
+
+    # Add the coin to the user's tracker with the converted amount in IDR
+    add_coin_query = tracked_coins.insert().values(
+        user_email=email,
+        coin_name=coin_name,
+        coin_price_idr=amount_idr,
+    )
+    await database.execute(add_coin_query)
+
+    return {"message": f"Coin {coin_name} added to tracker for user {email} with price {amount_idr} IDR"}
