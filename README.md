@@ -29,11 +29,19 @@ This project is a cryptocurrency price tracker web app built using FastAPI as th
 
 2. Create and activate virtual env:
 
+    ```bash
     python -m venv venv
-    # Unix/Linux
+    ```
+
+    Unix/Linux
+    ```bash
     source venv/bin/activate
-    # Windows
+    ```
+
+    Windows
+    ```bash
     .\venv\Scripts\activate
+    ```
 
 3. Install depedencies
 
