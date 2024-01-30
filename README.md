@@ -39,21 +39,27 @@ This project is a cryptocurrency price tracker web app built using FastAPI as th
     ```
 
     Windows
-    ```bash
+    
     \venv\Scripts\activate
     ```
 
 3. Install depedencies
 
+    ```bash
     pip install -r requirements.txt
+    ```
 
 4. Setup SQLite database
 
+    ```bash
     alembic upgrade head
+    ```
 
 5. Run the FASTAPI application
 
+    ```bash
     uvicorn main:app --reload
+    ```
 
 ### Usage
 Open the Swagger documentation at http://127.0.0.1:8000/docs to explore and test the available API endpoints.
