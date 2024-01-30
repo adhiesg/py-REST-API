@@ -39,7 +39,7 @@ This project is a cryptocurrency price tracker web app built using FastAPI as th
     ```
 
     Windows
-    
+    ```bash
     \venv\Scripts\activate
     ```
 
@@ -62,20 +62,20 @@ This project is a cryptocurrency price tracker web app built using FastAPI as th
     ```
 
 ### Usage
-Open the Swagger documentation at http://127.0.0.1:8000/docs to explore and test the available API endpoints.
+1. Open the Swagger documentation at http://127.0.0.1:8000/docs to explore and test the available API endpoints.
 
-Use the authentication endpoints (/signup, /signin, /signout) to manage user sessions.
+2. Use the authentication endpoints (/signup, /signin, /signout) to manage user sessions.
 
-Use the tracked coins endpoints (/listcoin, /addcoin, /removecoin, /usertrackedcoins) to manage tracked cryptocurrencies.
+3. Use the tracked coins endpoints (/listcoin, /addcoin, /removecoin, /usertrackedcoins) to manage tracked cryptocurrencies.
 
 ### API Endpoints
-Signup: /signup - Register a new user.
-Signin: /signin - Authenticate and obtain a JWT token.
-Signout: /signout - Deauthenticate and remove the JWT token.
-List Coin: /listcoin - To show available cryptocurrency list to track
-Add Coin: /addcoin - Add a new cryptocurrency to the tracked list by coin id.
-Remove Coin: /removecoin - Remove a cryptocurrency from the tracked list by coin id.
-User Tracked Coins: /usertrackedcoins - Retrieve the list of tracked coins for the authenticated user.
+- Signup: /signup - Register a new user.
+- Signin: /signin - Authenticate and obtain a JWT token.
+- Signout: /signout - Deauthenticate and remove the JWT token.
+- List Coin: /listcoin - To show available cryptocurrency list to track
+- Add Coin: /addcoin - Add a new cryptocurrency to the tracked list by coin id.
+- Remove Coin: /removecoin - Remove a cryptocurrency from the tracked list by coin id.
+- User Tracked Coins: /usertrackedcoins - Retrieve the list of tracked coins for the authenticated user.
 
 
 
