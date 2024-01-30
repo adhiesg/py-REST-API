@@ -8,6 +8,9 @@ from sqlalchemy.sql import func
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
+from models.users import SignUpRequest, SignInRequest, Email
+from models.token import Token
+from models.coins import UserCoin
 
 import jwt
 import httpx
@@ -36,7 +39,7 @@ tracked_coins = Table(
     Column("user_email", ForeignKey("users.email"), primary_key=True, index=True),  # Foreign key referencing the users table
     Column("coin_name", String, primary_key=True),
     Column("coin_price_idr", Float),
-    # Add more columns as needed, such as date_added, etc.
+
 )
 engine = create_engine(DATABASE_URL)
 metadata.create_all(bind=engine)
@@ -45,20 +48,6 @@ app = FastAPI()
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1
-
-class User(BaseModel):
-    email: EmailStr
-    password: str
-    password_confirmation: str
-
-class Signin(BaseModel):
-    email: EmailStr
-    password: str
-
-class Token(BaseModel):
-    message: str
-    token: str
-    token_type: str = "bearer"
 
 # Password hashing method
 password_hashing = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -140,20 +129,20 @@ async def fetch_coin_price_usd(coin_name: str) -> float:
 
 # signup endpoint
 @app.post("/signup")
-async def signup(user: User):
+async def signup(form_data: SignUpRequest):
 
     # Check if the user already exists
-    user_exists_query = select([users]).where(users.c.email == user.email)
+    user_exists_query = select([users]).where(users.c.email == form_data.email)
     existing_user = await database.fetch_one(user_exists_query)
 
     if existing_user:
         raise HTTPException(status_code=400, detail="Email is already registered")
 
     # Hash the password before storing it in the database
-    hashed_password = password_hashing.hash(user.password)
+    hashed_password = password_hashing.hash(form_data.password)
 
     # Insert the new user into the users table
-    signup_query = users.insert().values(email=user.email, hashed_password=hashed_password)
+    signup_query = users.insert().values(email=form_data.email, hashed_password=hashed_password)
     user_id = await database.execute(signup_query)
 
     return {"message": "sign up successful"}
@@ -161,7 +150,7 @@ async def signup(user: User):
 # signin endpoint
 # since the jwt is not handled in client side, we need to store it in database
 @app.post("/signin", response_model=Token)
-async def signin(form_data: Signin):
+async def signin(form_data: SignInRequest):
     # check if the user exists in the database
     query_check_user = select([users]).where(users.c.email == form_data.email)
     user_record = await database.fetch_one(query_check_user)
@@ -188,8 +177,8 @@ async def signin(form_data: Signin):
 # signout endpoint 
 # remove the jwt from the database
 @app.post("/signout")
-async def signout(request_data: dict):
-    email = request_data.get("email")
+async def signout(form_data: Email):
+    email = form_data.email
     if not email:
         raise HTTPException(status_code=400, detail="Email is required in the request body")
 
@@ -201,11 +190,11 @@ async def signout(request_data: dict):
 
 # token list endpoint to get the list of tokens from coincap
 # only authenticated users can access this endpoint
-@app.post("/tokenList")
-async def token_list(request_data: dict):
-    email = request_data.get("email")
+@app.post("/tokenlist")
+async def token_list(form_data: Email):
+    email = form_data.email
     if not email:
-        raise HTTPException(status_code=400, detail="Email is required")
+        raise HTTPException(status_code=400, detail="Email is required in the request body")
     try:
         payload = await validate_user(email)
 
@@ -222,11 +211,11 @@ async def token_list(request_data: dict):
     
     
 
-@app.get("/userTrackedCoins")
-async def user_tracked_coins(request_data: dict):
-    email = request_data.get("email")
+@app.get("/usertrackedcoins")
+async def user_tracked_coins(form_data: Email):
+    email = form_data.email
     if not email:
-        raise HTTPException(status_code=400, detail="Email is required") 
+        raise HTTPException(status_code=400, detail="Email is required in the request body")
     try:
         payload = await validate_user(email)
         
@@ -246,10 +235,10 @@ async def user_tracked_coins(request_data: dict):
 
     
 
-@app.post("/addCoin")
-async def add_coin(request_data: dict):
-    email = request_data.get("email")
-    coin_name = request_data.get("coin_name")
+@app.post("/addcoin")
+async def add_coin(form_data: UserCoin):
+    email = form_data.email
+    coin_name = form_data.coin_name
 
     if not email or not coin_name:
         raise HTTPException(status_code=400, detail="Email and coin_name are required in the request body")
@@ -257,7 +246,7 @@ async def add_coin(request_data: dict):
    # Validate user
     try:
         payload = await validate_user(email)
-        
+
         # Check if the coin is already tracked by the user
         tracked_coin_query = select([tracked_coins]).where(
             (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
@@ -282,5 +271,36 @@ async def add_coin(request_data: dict):
         await database.execute(add_coin_query)
 
         return {"message": f"{coin_name} added to tracker for user {email}"}
+    except HTTPException as e:
+        return {"error": str(e)}
+    
+@app.delete("/removecoin")
+async def remove_coin(form_data: UserCoin):
+    email = form_data.email
+    coin_name = form_data.coin_name
+
+    if not email or not coin_name:
+        raise HTTPException(status_code=400, detail="Email and coin_name are required in the request body")
+    
+    try:
+        payload = await validate_user(email)
+
+        # Check if the coin is tracked by the user
+        tracked_coin_query = select([tracked_coins]).where(
+            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+        )
+        existing_tracked_coin = await database.fetch_one(tracked_coin_query)
+
+        if existing_tracked_coin is None:
+            raise HTTPException(status_code=404, detail=f"Coin {coin_name} is not tracked by the user")
+
+        # Remove the coin from the user's tracked list
+        remove_coin_query = tracked_coins.delete().where(
+            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+        )
+        await database.execute(remove_coin_query)
+
+        return {"message": f"Coin {coin_name} removed from tracker for user {email}"}
+
     except HTTPException as e:
         return {"error": str(e)}
