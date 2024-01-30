@@ -209,7 +209,8 @@ async def token_list(form_data: Email):
         return {"error": str(e)}
     
     
-
+# to list tracked coin by user
+# only authenticated users can access this endpoint
 @app.get("/usertrackedcoins")
 async def user_tracked_coins(form_data: Email):
     email = form_data.email
@@ -232,14 +233,15 @@ async def user_tracked_coins(form_data: Email):
     except HTTPException as e:
         return {"error": str(e)}
 
-    
 
+# add coin to user's coin tracker
+# only authenticated users can access this endpoint
 @app.post("/addcoin")
 async def add_coin(form_data: UserCoin):
     email = form_data.email
-    coin_name = form_data.coin_name
+    coin_id = form_data.coin_id
 
-    if not email or not coin_name:
+    if not email or not coin_id:
         raise HTTPException(status_code=400, detail="Email and coin_name are required in the request body")
 
    # Validate user
@@ -248,15 +250,15 @@ async def add_coin(form_data: UserCoin):
 
         # Check if the coin is already tracked by the user
         tracked_coin_query = select([tracked_coins]).where(
-            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_id)
         )
         existing_tracked_coin = await database.fetch_one(tracked_coin_query)
 
         if existing_tracked_coin:
-            raise HTTPException(status_code=400, detail=f"Coin {coin_name} is already being tracked by the user")
+            raise HTTPException(status_code=400, detail=f"Coin {coin_id} is already being tracked by the user")
 
         # Fetch the amount in USD for the specified coin from the CoinCap API
-        amount_usd = await fetch_coin_price_usd(coin_name)
+        amount_usd = await fetch_coin_price_usd(coin_id)
 
         # Convert USD to IDR using the exchange rate
         amount_idr = await convert_usd_to_idr(amount_usd)
@@ -264,21 +266,24 @@ async def add_coin(form_data: UserCoin):
         # Add the coin to the user's tracker with the converted amount in IDR
         add_coin_query = tracked_coins.insert().values(
             user_email=email,
-            coin_name=coin_name,
+            coin_name=coin_id,
             coin_price_idr=amount_idr,
         )
         await database.execute(add_coin_query)
 
-        return {"message": f"{coin_name} added to tracker for user {email}"}
+        return {"message": f"{coin_id} added to tracker for user {email}"}
     except HTTPException as e:
         return {"error": str(e)}
-    
+
+
+# delete coin from user's coin tracker
+# only authenticated users can access this endpoint   
 @app.delete("/removecoin")
 async def remove_coin(form_data: UserCoin):
     email = form_data.email
-    coin_name = form_data.coin_name
+    coin_id = form_data.coin_id
 
-    if not email or not coin_name:
+    if not email or not coin_id:
         raise HTTPException(status_code=400, detail="Email and coin_name are required in the request body")
     
     try:
@@ -286,20 +291,20 @@ async def remove_coin(form_data: UserCoin):
 
         # Check if the coin is tracked by the user
         tracked_coin_query = select([tracked_coins]).where(
-            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_id)
         )
         existing_tracked_coin = await database.fetch_one(tracked_coin_query)
 
         if existing_tracked_coin is None:
-            raise HTTPException(status_code=404, detail=f"Coin {coin_name} is not tracked by the user")
+            raise HTTPException(status_code=404, detail=f"Coin {coin_id} is not tracked by the user")
 
         # Remove the coin from the user's tracked list
         remove_coin_query = tracked_coins.delete().where(
-            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_name)
+            (tracked_coins.c.user_email == email) & (tracked_coins.c.coin_name == coin_id)
         )
         await database.execute(remove_coin_query)
 
-        return {"message": f"Coin {coin_name} removed from tracker for user {email}"}
+        return {"message": f"Coin {coin_id} removed from tracker for user {email}"}
 
     except HTTPException as e:
         return {"error": str(e)}
