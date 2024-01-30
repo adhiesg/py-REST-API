@@ -1,12 +1,11 @@
 # main.py
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from databases import Database
-from sqlalchemy import MetaData, create_engine, Table, Column, Integer, String, DateTime, select, ForeignKey, Float
+from sqlalchemy import MetaData, create_engine, Table, Column, String, DateTime, select, ForeignKey, Float
 from sqlalchemy.sql import func
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
 from models.users import SignUpRequest, SignInRequest, Email
 from models.token import Token
