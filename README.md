@@ -40,7 +40,7 @@ This project is a cryptocurrency price tracker web app built using FastAPI as th
 
     Windows
     ```bash
-    .\venv\Scripts\activate
+    \venv\Scripts\activate
     ```
 
 3. Install depedencies
