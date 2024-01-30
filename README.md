@@ -14,19 +14,38 @@ This project is a cryptocurrency price tracker web app built using FastAPI as th
 
 ## Getting Started
 
+### Prerequisites
+
+- Python 3.7 or higher
+- pip (Python package installer)
+
 ### Installation
 
 1. Clone the repository:
 
    ```bash
    git clone https://github.com/adhiesg/py-REST-API
+   cd py-REST-API
 
-### Prerequisites
+2. Create and activate virtual env:
 
-- Python 3.7 or higher
-- pip (Python package installer)
+    python -m venv venv
+    # Unix/Linux
+    source venv/bin/activate
+    # Windows
+    .\venv\Scripts\activate
 
+3. Install depedencies
 
+    pip install -r requirements.txt
+
+4. Setup SQLite database
+
+    alembic upgrade head
+
+5. Run the FASTAPI application
+
+    uvicorn main:app --reload
 
 ### Usage
 Open the Swagger documentation at http://127.0.0.1:8000/docs to explore and test the available API endpoints.
@@ -40,8 +59,8 @@ Signup: /signup - Register a new user.
 Signin: /signin - Authenticate and obtain a JWT token.
 Signout: /signout - Deauthenticate and remove the JWT token.
 List Coin: /listcoin - To show available cryptocurrency list to track
-Add Coin: /addcoin - Add a new cryptocurrency to the tracked list.
-Remove Coin: /removecoin - Remove a cryptocurrency from the tracked list.
+Add Coin: /addcoin - Add a new cryptocurrency to the tracked list by coin id.
+Remove Coin: /removecoin - Remove a cryptocurrency from the tracked list by coin id.
 User Tracked Coins: /usertrackedcoins - Retrieve the list of tracked coins for the authenticated user.
 
 
